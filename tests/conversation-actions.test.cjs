@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const ts=require('typescript');
-function harness({host='local',fail=false,unconfirmed=false,branch='main',dragging=false,pins=null}={}) {
+function harness({host='local',fail=false,unconfirmed=false,branch='main',dragging=false,pins=null,workspaceOnly=false}={}) {
  const calls=[],effects=[],states=[];let cursor=0,tree;
  const jsx=(type,props)=>({type,props});const imports={
   './i18n':{t:(s,...a)=>s.replace(/\{(\d)\}/g,(_,i)=>String(a[i])),timeLabel:s=>s,useAppLanguage(){}},'./action-dialog':{ActionDialog:'ActionDialog'},'./pins':{usePins:()=>pins},'./web':{isSidebarDragging:()=>dragging,showConversationTooltip:()=>()=>{}},'../shared/activity':{activityTime:()=> 'now'},react:{useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return[states[i],v=>states[i]=typeof v==='function'?v(states[i]):v]},useRef(v){const i=cursor++;if(!(i in states))states[i]={current:v};return states[i]},useEffect(fn){const i=cursor++;if(!(i in states)){states[i]=true;effects.push(fn)}}},
@@ -8,7 +8,7 @@ function harness({host='local',fail=false,unconfirmed=false,branch='main',draggi
   '@getpaseo/plugin/client':{useHosts:()=>[{serverId:'local',label:'MacBook'}],useRpc:contract=>contract==='host'?async()=>({hostId:'local'}):contract==='rename'?async input=>{calls.push(['rename-agent',input]);return {renamed:true,title:input.title}}:async input=>{calls.push(['delete',input]);},useAgent:()=>({title:'Test',workspace:{hostId:host,id:'workspace',kind:'workspace',key:'workspace-ref'}}),useWorkspace:()=>({name:'Workspace',directory:'/sample',branch,labels:['work'],pinned:false}),usePaseo:()=>({agents:{ref:ref=>({async setMetadata(){},async archive(){calls.push(['archive-agent',ref]);if(fail)throw Error('Source offline');return {archivedAt:'2026-11-11T00:00:00Z'}}})},workspaces:{ref:ref=>({async archive(){calls.push(['archive-workspace',ref]);return{error:null,archivedAt:unconfirmed?null:'2026-11-11T00:00:00Z'}},async setPinned(value){calls.push(['pin',ref,value])},async setTitle(value){calls.push(['rename',ref,value]);if(fail)throw Error('Source offline');return{title:unconfirmed?'wrong':value}},async setLabel(value,options){calls.push(['label',ref,value,options])}})}})}
  };
  const source=ts.transpileModule(fs.readFileSync(require.resolve('../client/conversation-actions.tsx'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;const m={exports:{}};new Function('require','exports',source)(n=>imports[n],m.exports);
- const reference={hostId:host,id:'test-id',kind:'agent',key:'test-ref'};
+ const reference={hostId:host,id:'test-id',kind:workspaceOnly?'workspace':'agent',key:'test-ref'};
  const render=()=>{cursor=0;tree=m.exports.ConversationActions({reference,view:{active:{agent:null},theme:{colors:{}},layout:{compact:false,platform:'web'},navigation:{openWorkspace:ref=>calls.push(['open',ref])}},children:()=> 'row'})};
  function walk(n,out=[]){if(Array.isArray(n))n.forEach(x=>walk(x,out));else if(n&&typeof n==='object'){out.push(n);walk(n.props?.children,out);if(n.type==='ActionRow')walk(n.props?.action,out)}return out}
  render();effects.forEach(fn=>fn());return{calls,reference,render,nodes:()=>walk(tree),action:id=>walk(tree).find(n=>n.type==='ContextMenu').props.actions.find(a=>a.id===id),find:label=>walk(tree).find(n=>n.props?.accessibilityLabel===label)};
@@ -61,4 +61,12 @@ test('pin conversation is the first menu item, follows the shared pin state, and
  assert.equal(menu()[0].id,'pin-conversation');assert.equal(menu()[0].label,'Pin conversation');
  menu()[0].onSelect();await new Promise(r=>setImmediate(r));h.render();assert.deepEqual(toggled,['test-id']);assert.equal(menu()[0].label,'Unpin conversation');
  ok=false;menu()[0].onSelect();await new Promise(r=>setImmediate(r));h.render();assert.ok(h.nodes().some(n=>n.props&&n.props.accessibilityRole==='alert'));
+});
+
+test('workspace rows expose only workspace actions and archive the exact workspace reference', async () => {
+ const h=harness({host:'remote',workspaceOnly:true});
+ assert.equal(h.action('archive-agent'),undefined);
+ h.action('archive-workspace').onSelect();h.render();assert.deepEqual(h.calls,[]);
+ h.find('Confirm conversation action').props.onPress();await tick();
+ assert.deepEqual(h.calls,[['archive-workspace',h.reference]]);
 });
