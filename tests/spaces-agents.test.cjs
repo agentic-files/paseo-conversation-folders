@@ -54,6 +54,25 @@ test('Space naming honors a custom title, then the main conversation summary, th
   assert.equal(spaceTitle(workspace, null), 'project');
 });
 
+test('newly pinned Spaces rise above other Spaces and unpinning restores name order', () => {
+  const { compareSpaces } = model();
+  const a = { name: 'a', pinnedAt: null };
+  const b = { name: 'b', pinnedAt: '2026-11-24T00:00:00Z' };
+  const c = { name: 'c', pinnedAt: '2026-11-25T00:00:00Z' };
+  assert.deepEqual([a, b, c].sort(compareSpaces), [c, b, a]);
+  assert.deepEqual([c, { ...b, pinnedAt: null }, a].sort(compareSpaces).map(w => w.name), ['c', 'a', 'b']);
+});
+
+test('the Spaces running badge excludes idle, hidden and approval-blocked Agents', () => {
+  const { isExecutingAgent } = model();
+  const running = agent('run', 'local/ws', 'running');
+  assert.equal(isExecutingAgent(running), true);
+  assert.equal(isExecutingAgent(agent('init', 'local/ws', 'initializing')), true);
+  assert.equal(isExecutingAgent(agent('wait', 'local/ws', 'running', 'permission')), false);
+  assert.equal(isExecutingAgent(agent('idle', 'local/ws')), false);
+  assert.equal(isExecutingAgent({ ...running, background: true }), false);
+});
+
 test('vertical drag adjusts the split but leaves both panes reachable', () => {
   const { resizeSplit } = model();
   assert.equal(resizeSplit(0.5, 100, 500), 0.7);

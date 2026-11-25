@@ -3,7 +3,7 @@ import { PanResponder, StyleSheet, Text, View } from 'react-native';
 import { FlatList, Icon } from '@getpaseo/plugin/client/ui';
 import { useAgent, useAgents, useHosts, useRpc, useTranslation, useWorkspace, useWorkspaces, type AgentRef, type WorkspaceRef, type PluginHostSummary, type PluginSidebarViewProps } from '@getpaseo/plugin/client';
 import { activityTime } from '../shared/activity';
-import { agentGroupKey, agentState, compareAgentActivity, defaultHostFirst, directoryName, resizeSplit, spaceTitle } from '../shared/spaces-agents';
+import { agentGroupKey, agentState, compareAgentActivity, compareSpaces, defaultHostFirst, directoryName, isExecutingAgent, resizeSplit, spaceTitle } from '../shared/spaces-agents';
 import { messages, useAppLanguage } from './i18n';
 import { ConversationActions } from './conversation-actions';
 import { identityColor } from '../shared/identity';
@@ -31,7 +31,7 @@ function useSpaceTitle(reference: WorkspaceRef) {
   return { workspace, title: workspace ? spaceTitle(workspace, summary) : null };
 }
 
-function WorkspaceRow({ reference, view }: { reference: WorkspaceRef; view: PluginSidebarViewProps }) {
+function WorkspaceRow({ reference, view, running, zh }: { reference: WorkspaceRef; view: PluginSidebarViewProps; running: number; zh: boolean }) {
   const { workspace, title } = useSpaceTitle(reference);
   if (!workspace || !title) return null;
   const selected = view.active.workspace?.key === reference.key;
@@ -41,6 +41,11 @@ function WorkspaceRow({ reference, view }: { reference: WorkspaceRef; view: Plug
       <Text style={{ color: '#fff', fontWeight: '600' }}>{title.trim().charAt(0).toUpperCase() || '?'}</Text>
     </View>
     <Text numberOfLines={1} style={[styles.main, { color: c.foreground }]}>{title}</Text>
+    {workspace.pinnedAt && <View accessible accessibilityLabel={zh ? '已置顶' : 'Pinned'}><Glyph name="Pin" size={12} color={c.foregroundMuted} /></View>}
+    {running > 0 && <View accessible accessibilityLabel={zh ? '运行中 Agent，' + running : running + ' running agents'} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+      <StatusMark state="running" theme={view.theme} />
+      <Text style={[styles.meta, { maxWidth: undefined, color: c.foregroundMuted }]}>{running}</Text>
+    </View>}
     <Text numberOfLines={1} accessibilityLabel={workspace.directory} style={[styles.meta, { color: c.foregroundMuted }]}>{directoryName(workspace.directory)}</Text>
   </FeedbackPressable>}</ConversationActions>;
 }
@@ -83,13 +88,14 @@ export function SpacesAgentsSidebar(view: PluginSidebarViewProps) {
   const hosts = defaultHostFirst(configuredHosts, defaultHost);
   const hostLabels = new Map(hosts.map(host => [host.serverId, host.label]));
   const online = new Set(hosts.filter(host => host.status === 'online').map(host => host.serverId));
-  const workspaces = useWorkspaces({ where: workspace => !workspace.background && !workspace.archivingAt, groupBy: workspace => workspace.hostId, orderBy: 'name' });
+  const workspaces = useWorkspaces({ where: workspace => !workspace.background && !workspace.archivingAt, groupBy: workspace => workspace.hostId, orderBy: compareSpaces });
   const visibleWorkspaces = new Map(workspaces.flatMap(group => group.items.map(ref => [ref.key, ref] as const)));
   const agentGroups = useAgents({
     where: agent => !agent.background && agent.status !== 'closed' && online.has(agent.hostId) && visibleWorkspaces.has(agent.workspace.key),
     orderBy: compareAgentActivity,
     groupBy: agentGroupKey,
   });
+  const runningBySpace = new Map(useAgents({ where: agent => online.has(agent.hostId) && isExecutingAgent(agent), groupBy: agentGroupKey }).map(group => [group.key, group.items.length]));
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const isOpen = (host: PluginHostSummary) => open[host.serverId] ?? (host.serverId === defaultHost || view.active.workspace?.hostId === host.serverId);
   const spaceRows: SpaceRow[] = hosts.flatMap(host => [
@@ -112,7 +118,7 @@ export function SpacesAgentsSidebar(view: PluginSidebarViewProps) {
     <View style={[styles.pane, { flex: split }]}>
       <Text accessibilityRole="header" style={[styles.heading, { color: c.foregroundMuted }]}>{zh ? '工作区' : 'Spaces'}</Text>
       <FlatList style={styles.list} data={spaceRows} keyExtractor={item => item.key} renderItem={({ item }) => {
-        if ('ref' in item) return <WorkspaceRow reference={item.ref} view={view} />;
+        if ('ref' in item) return <WorkspaceRow reference={item.ref} view={view} running={runningBySpace.get(item.ref.key) ?? 0} zh={zh} />;
         const { host } = item;
         const available = host.status === 'online';
         const expanded = available && isOpen(host);

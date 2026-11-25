@@ -15,6 +15,16 @@ export function agentState(agent: Agent) {
   return 'idle';
 }
 
+export function isExecutingAgent(agent: Agent & { background?: boolean }) {
+  return !agent.background && agentState(agent) === 'running';
+}
+
+export function compareSpaces(a: { name: string; pinnedAt: string | null }, b: { name: string; pinnedAt: string | null }) {
+  if (a.pinnedAt && b.pinnedAt) return Date.parse(b.pinnedAt) - Date.parse(a.pinnedAt) || a.name.localeCompare(b.name);
+  if (a.pinnedAt || b.pinnedAt) return a.pinnedAt ? -1 : 1;
+  return a.name.localeCompare(b.name);
+}
+
 export function agentGroupKey(agent: Agent) {
   return agent.workspace.key;
 }
