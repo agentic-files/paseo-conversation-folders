@@ -45,3 +45,19 @@ test('the default host sorts first without changing the order of the other hosts
   const { defaultHostFirst } = model();
   assert.deepEqual(defaultHostFirst(['cvm', 'local', 'dev'].map(serverId => ({ serverId })), 'local').map(h => h.serverId), ['local', 'cvm', 'dev']);
 });
+
+test('Space naming honors a custom title, then the main conversation summary, then the directory', () => {
+  const { spaceTitle } = model();
+  const workspace = { title: null, name: 'checkout-123', directory: '/tmp/project' };
+  assert.equal(spaceTitle({...workspace, title:'Named'}, 'Agent summary'), 'Named');
+  assert.equal(spaceTitle(workspace, ' Agent summary '), 'Agent summary');
+  assert.equal(spaceTitle(workspace, null), 'project');
+});
+
+test('vertical drag adjusts the split but leaves both panes reachable', () => {
+  const { resizeSplit } = model();
+  assert.equal(resizeSplit(0.5, 100, 500), 0.7);
+  assert.equal(resizeSplit(0.5, 1000, 500), 0.8);
+  assert.equal(resizeSplit(0.5, -1000, 500), 0.2);
+  assert.equal(resizeSplit(0.5, 100, 0), 0.5);
+});

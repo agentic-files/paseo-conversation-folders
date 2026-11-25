@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { PanResponder, StyleSheet, Text, View } from 'react-native';
 import { FlatList, Icon } from '@getpaseo/plugin/client/ui';
 import { useAgent, useAgents, useHosts, useRpc, useTranslation, useWorkspace, useWorkspaces, type AgentRef, type WorkspaceRef, type PluginHostSummary, type PluginSidebarViewProps } from '@getpaseo/plugin/client';
 import { activityTime } from '../shared/activity';
-import { agentGroupKey, agentState, compareAgentActivity, defaultHostFirst, directoryName } from '../shared/spaces-agents';
-import { messages } from './i18n';
+import { agentGroupKey, agentState, compareAgentActivity, defaultHostFirst, directoryName, resizeSplit, spaceTitle } from '../shared/spaces-agents';
+import { messages, useAppLanguage } from './i18n';
+import { ConversationActions } from './conversation-actions';
 import { identityColor } from '../shared/identity';
 import { hostContext } from '../shared/host-context';
 import { providerArtwork } from './provider-artwork';
@@ -23,19 +24,25 @@ const styles = StyleSheet.create({
   meta: { fontSize: 11, flexShrink: 1, maxWidth: '32%' },
 });
 
-function WorkspaceRow({ reference, view }: { reference: WorkspaceRef; view: PluginSidebarViewProps }) {
+function useSpaceTitle(reference: WorkspaceRef) {
   const workspace = useWorkspace(reference);
-  if (!workspace) return null;
-  const title = workspace.title || workspace.name;
+  const candidates = useAgents({ where: agent => agent.workspace.key === reference.key && !agent.background && !agent.parentAgent && agent.status !== 'closed' && !!agent.title?.trim(), orderBy: 'createdAt' });
+  const summary = useAgent(candidates[0] ?? { kind: 'agent', id: '', key: '', hostId: reference.hostId }, agent => agent.title);
+  return { workspace, title: workspace ? spaceTitle(workspace, summary) : null };
+}
+
+function WorkspaceRow({ reference, view }: { reference: WorkspaceRef; view: PluginSidebarViewProps }) {
+  const { workspace, title } = useSpaceTitle(reference);
+  if (!workspace || !title) return null;
   const selected = view.active.workspace?.key === reference.key;
   const c = view.theme.colors;
-  return <FeedbackPressable theme={view.theme} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => view.navigation.openWorkspace(reference)} style={[styles.row, { minHeight: view.layout.compact ? 44 : 32, backgroundColor: selected ? c.surface2 : undefined }]}>
+  return <ConversationActions reference={reference} view={view} minimal workspaceTitle={title}>{openMenu => <FeedbackPressable onLongPress={openMenu} theme={view.theme} accessibilityRole="button" accessibilityState={{ selected }} onPress={() => view.navigation.openWorkspace(reference)} style={[styles.row, { minHeight: view.layout.compact ? 44 : 32, backgroundColor: selected ? c.surface2 : undefined }]}>
     <View style={{ width: 24, height: 24, borderRadius: 6, backgroundColor: identityColor(reference.key), alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: '#fff', fontWeight: '600' }}>{title.trim().charAt(0).toUpperCase() || '?'}</Text>
     </View>
     <Text numberOfLines={1} style={[styles.main, { color: c.foreground }]}>{title}</Text>
     <Text numberOfLines={1} accessibilityLabel={workspace.directory} style={[styles.meta, { color: c.foregroundMuted }]}>{directoryName(workspace.directory)}</Text>
-  </FeedbackPressable>;
+  </FeedbackPressable>}</ConversationActions>;
 }
 
 function AgentRow({ reference, host, view, zh }: { reference: AgentRef; host: string; view: PluginSidebarViewProps; zh: boolean }) {
@@ -48,21 +55,22 @@ function AgentRow({ reference, host, view, zh }: { reference: AgentRef; host: st
   const selected = view.active.agent?.key === reference.key;
   const activity = activityTime(agent.lastActivityAt);
   const artwork = providerArtwork(agent.provider);
-  return <FeedbackPressable theme={view.theme} accessibilityRole="button" accessibilityLabel={[title, host, activity, stateLabel].filter(Boolean).join(', ')} accessibilityState={{ selected }} onPress={() => view.navigation.openAgent(reference)} style={[styles.row, { minHeight: view.layout.compact ? 44 : 34, backgroundColor: selected ? c.surface2 : undefined }]}>
+  return <ConversationActions reference={reference} view={view} minimal>{openMenu => <FeedbackPressable onLongPress={openMenu} theme={view.theme} accessibilityRole="button" accessibilityLabel={[title, host, activity, stateLabel].filter(Boolean).join(', ')} accessibilityState={{ selected }} onPress={() => view.navigation.openAgent(reference)} style={[styles.row, { minHeight: view.layout.compact ? 44 : 34, backgroundColor: selected ? c.surface2 : undefined }]}>
     {artwork ? <Icon icon={artwork} size={16} color={c.foreground} /> : <Icon name="Bot" size={16} color={c.foregroundMuted} />}
     <Text numberOfLines={1} style={[styles.main, { color: c.foreground }]}>{title}</Text>
     <Text numberOfLines={1} style={[styles.meta, { color: c.foregroundMuted }]}>{host}</Text>
     <Text style={[styles.meta, { color: c.foregroundMuted }]}>{activity}</Text>
     <StatusMark state={state} theme={view.theme} />
-  </FeedbackPressable>;
+  </FeedbackPressable>}</ConversationActions>;
 }
 
 function WorkspaceHeading({ reference, host, view }: { reference: WorkspaceRef; host: string; view: PluginSidebarViewProps }) {
-  const workspace = useWorkspace(reference);
-  return <Text numberOfLines={1} style={[styles.label, { color: view.theme.colors.foregroundMuted }]}>{workspace?.title || workspace?.name || host}</Text>;
+  const { title } = useSpaceTitle(reference);
+  return <Text numberOfLines={1} style={[styles.label, { color: view.theme.colors.foregroundMuted }]}>{title || host}</Text>;
 }
 
 export function SpacesAgentsSidebar(view: PluginSidebarViewProps) {
+  useAppLanguage();
   const zh = useTranslation(messages).locale.toLowerCase().startsWith('zh');
   const configuredHosts = useHosts();
   const readHost = useRpc(hostContext);
@@ -89,8 +97,19 @@ export function SpacesAgentsSidebar(view: PluginSidebarViewProps) {
     ...(host.status === 'online' && isOpen(host) ? (workspaces.find(group => group.key === host.serverId)?.items ?? []).map(ref => ({ key: `workspace:${ref.key}`, ref })) : []),
   ]);
   const c = view.theme.colors;
-  return <View style={styles.root}>
-    <View style={[styles.pane, { flex: 1, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border }]}>
+  const [split, setSplit] = useState(0.5);
+  const height = useRef(0);
+  const start = useRef(split);
+  const ratio = useRef(split);
+  ratio.current = split;
+  const divider = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => { start.current = ratio.current; },
+    onPanResponderMove: (_, gesture) => setSplit(resizeSplit(start.current, gesture.dy, height.current)),
+    onPanResponderTerminationRequest: () => false,
+  })).current;
+  return <View style={styles.root} onLayout={event => { height.current = event.nativeEvent.layout.height - 10; }}>
+    <View style={[styles.pane, { flex: split }]}>
       <Text accessibilityRole="header" style={[styles.heading, { color: c.foregroundMuted }]}>{zh ? '工作区' : 'Spaces'}</Text>
       <FlatList style={styles.list} data={spaceRows} keyExtractor={item => item.key} renderItem={({ item }) => {
         if ('ref' in item) return <WorkspaceRow reference={item.ref} view={view} />;
@@ -106,11 +125,14 @@ export function SpacesAgentsSidebar(view: PluginSidebarViewProps) {
         </FeedbackPressable>;
       }} />
     </View>
-    <AgentPane sections={agentGroups} workspaces={visibleWorkspaces} hosts={hostLabels} view={view} zh={zh} />
+    <View {...divider.panHandlers} accessibilityRole="adjustable" accessibilityLabel={zh ? '调整工作区与 Agent 的高度' : 'Resize Spaces and Agents'} accessibilityValue={{ min: 20, max: 80, now: Math.round(split * 100) }} accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]} onAccessibilityAction={event => setSplit(current => resizeSplit(current, event.nativeEvent.actionName === 'increment' ? 0.05 : -0.05, 1))} style={{ height: 10, justifyContent: 'center' }}>
+      <View pointerEvents="none" style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.border }}><View style={{ alignSelf: 'center', width: 24, height: 3, borderRadius: 2, backgroundColor: c.foregroundMuted, marginTop: -1 }} /></View>
+    </View>
+    <AgentPane flex={1 - split} sections={agentGroups} workspaces={visibleWorkspaces} hosts={hostLabels} view={view} zh={zh} />
   </View>;
 }
 
-function AgentPane({ sections, workspaces, hosts, view, zh }: { sections: readonly { key: string; items: readonly AgentRef[] }[]; workspaces: ReadonlyMap<string, WorkspaceRef>; hosts: ReadonlyMap<string, string>; view: PluginSidebarViewProps; zh: boolean }) {
+function AgentPane({ flex, sections, workspaces, hosts, view, zh }: { flex: number; sections: readonly { key: string; items: readonly AgentRef[] }[]; workspaces: ReadonlyMap<string, WorkspaceRef>; hosts: ReadonlyMap<string, string>; view: PluginSidebarViewProps; zh: boolean }) {
   const rows: AgentItem[] = [];
   for (const section of sections) {
     const workspace = workspaces.get(section.key);
@@ -119,7 +141,7 @@ function AgentPane({ sections, workspaces, hosts, view, zh }: { sections: readon
     for (const ref of section.items) rows.push({ key: 'agent:' + ref.key, ref });
   }
   const c = view.theme.colors;
-  return <View style={[styles.pane, { flex: 1 }]}>
+  return <View style={[styles.pane, { flex }]}>
     <Text accessibilityRole="header" style={[styles.heading, { color: c.foregroundMuted }]}>Agents</Text>
     <FlatList style={styles.list} data={rows} keyExtractor={item => item.key} ListEmptyComponent={<Text style={[styles.label, { color: c.foregroundMuted }]}>{zh ? '没有可显示的会话' : 'No sessions to show'}</Text>} renderItem={({ item }) => 'ref' in item ? <AgentRow reference={item.ref} host={hosts.get(item.ref.hostId) ?? item.ref.hostId} view={view} zh={zh} /> : <WorkspaceHeading reference={item.workspace} host={item.host} view={view} />} />
   </View>;
