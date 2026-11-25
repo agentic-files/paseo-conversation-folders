@@ -16,8 +16,16 @@ export function agentState(agent: Agent) {
 }
 
 export function agentGroupKey(agent: Agent) {
-  const state = agentState(agent);
-  return state === 'idle' ? `workspace:${agent.workspace.key}` : state === 'running' ? 'running' : 'attention';
+  return agent.workspace.key;
+}
+
+export function directoryName(directory: string) {
+  return directory.split(/[\\/]+/).filter(Boolean).at(-1) ?? directory;
+}
+
+export function defaultHostFirst<T extends { serverId: string }>(hosts: readonly T[], defaultId: string | null): readonly T[] {
+  const host = hosts.find(item => item.serverId === defaultId);
+  return host ? [host, ...hosts.filter(item => item !== host)] : hosts;
 }
 
 export function compareAgentActivity(a: Agent, b: Agent) {

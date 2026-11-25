@@ -14,14 +14,14 @@ const agent = (id, workspace, status = 'idle', attentionReason = null, time = 1)
   requiresAttention: attentionReason !== null, lastActivityAt: new Date(time).toISOString(),
 });
 
-test('approval overrides running, and priority sections do not duplicate recent agents', () => {
+test('approval overrides running without moving the agent out of its Space', () => {
   const { agentGroupKey, agentState } = model();
   const approval = agent('approval', 'local/ws', 'running', 'permission');
   const running = agent('running', 'local/ws', 'initializing');
   const error = agent('error', 'local/ws', 'error');
-  const unread = agent('unread', 'remote/ws', 'idle', 'finished');
-  assert.equal(agentState(approval), 'permission');
-  assert.deepEqual([running, approval, error, unread].map(agentGroupKey), ['running', 'attention', 'attention', 'attention']);
+  const unread = agent('unread', 'local/ws', 'idle', 'finished');
+  assert.deepEqual([approval, running, error, unread].map(agentState), ['permission', 'running', 'error', 'updated']);
+  assert.deepEqual([approval, running, error, unread].map(agentGroupKey), Array(4).fill('local/ws'));
 });
 
 test('recent rows sort by activity and keep same-ID workspaces on different hosts separate', () => {
@@ -30,5 +30,18 @@ test('recent rows sort by activity and keep same-ID workspaces on different host
   const other = agent('other', 'local/ws', 'idle', null, 2);
   const older = agent('older', 'remote/ws');
   assert.deepEqual([older, other, newest].sort(compareAgentActivity), [newest, other, older]);
-  assert.deepEqual([newest, other, older].map(agentGroupKey), ['workspace:remote/ws', 'workspace:local/ws', 'workspace:remote/ws']);
+  assert.deepEqual([newest, other, older].map(agentGroupKey), ['remote/ws', 'local/ws', 'remote/ws']);
+});
+
+test('the Space directory displays its last component on Unix and Windows', () => {
+  const { directoryName } = model();
+  assert.equal(directoryName('/home/dev/project/'), 'project');
+  assert.equal(directoryName('C:\\work\\project\\'), 'project');
+  assert.equal(directoryName('/'), '/');
+  assert.equal(directoryName('~'), '~');
+});
+
+test('the default host sorts first without changing the order of the other hosts', () => {
+  const { defaultHostFirst } = model();
+  assert.deepEqual(defaultHostFirst(['cvm', 'local', 'dev'].map(serverId => ({ serverId })), 'local').map(h => h.serverId), ['local', 'cvm', 'dev']);
 });
