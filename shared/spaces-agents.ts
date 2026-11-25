@@ -42,10 +42,21 @@ export function compareAgentActivity(a: Agent, b: Agent) {
   return Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt) || a.ref.key.localeCompare(b.ref.key);
 }
 
-export function spaceTitle(workspace: { title: string | null; name: string; directory: string }, summary?: string | null) {
-  return workspace.title?.trim() || summary?.trim() || directoryName(workspace.directory) || workspace.name;
+export function spaceTitle(workspace: { title: string | null; name: string; directory: string }) {
+  return workspace.title?.trim() || directoryName(workspace.directory) || workspace.name;
+}
+
+export function agentGroupRows<T extends { key: string }>(sections: readonly { key: string; items: readonly T[] }[], pinned: (key: string) => boolean, open: (key: string) => boolean) {
+  return [...sections].sort((a, b) => Number(pinned(b.key)) - Number(pinned(a.key))).flatMap(section => [
+    { key: 'space:' + section.key, workspaceKey: section.key, count: section.items.length },
+    ...(open(section.key) ? section.items.map(ref => ({ key: 'agent:' + ref.key, ref })) : []),
+  ]);
+}
+
+export function isVerticalSplitDrag(dx: number, dy: number) {
+  return Math.abs(dy) > 4 && Math.abs(dy) > Math.abs(dx);
 }
 
 export function resizeSplit(start: number, dy: number, height: number) {
-  return height > 0 ? Math.max(0.2, Math.min(0.8, start + dy / height)) : start;
+  return Number.isFinite(dy) && Number.isFinite(height) && height > 0 ? Math.max(0.2, Math.min(0.8, start + dy / height)) : start;
 }

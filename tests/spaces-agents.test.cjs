@@ -46,11 +46,11 @@ test('the default host sorts first without changing the order of the other hosts
   assert.deepEqual(defaultHostFirst(['cvm', 'local', 'dev'].map(serverId => ({ serverId })), 'local').map(h => h.serverId), ['local', 'cvm', 'dev']);
 });
 
-test('Space naming honors a custom title, then the main conversation summary, then the directory', () => {
+test('Space naming honors a custom title, otherwise uses the directory', () => {
   const { spaceTitle } = model();
   const workspace = { title: null, name: 'checkout-123', directory: '/tmp/project' };
   assert.equal(spaceTitle({...workspace, title:'Named'}, 'Agent summary'), 'Named');
-  assert.equal(spaceTitle(workspace, ' Agent summary '), 'Agent summary');
+  assert.equal(spaceTitle(workspace, ' Agent summary '), 'project');
   assert.equal(spaceTitle(workspace, null), 'project');
 });
 
@@ -71,6 +71,25 @@ test('the Spaces running badge excludes idle, hidden and approval-blocked Agents
   assert.equal(isExecutingAgent(agent('wait', 'local/ws', 'running', 'permission')), false);
   assert.equal(isExecutingAgent(agent('idle', 'local/ws')), false);
   assert.equal(isExecutingAgent({ ...running, background: true }), false);
+});
+
+test('pinned Agent groups move first and folded groups keep their headers and counts', () => {
+  const { agentGroupRows } = model();
+  const a = { key: 'local/ws', items: [{ key: 'a' }] };
+  const b = { key: 'remote/ws', items: [{ key: 'b' }] };
+  assert.deepEqual(agentGroupRows([a, b], key => key === b.key, key => key !== b.key), [
+    { key: 'space:remote/ws', workspaceKey: 'remote/ws', count: 1 },
+    { key: 'space:local/ws', workspaceKey: 'local/ws', count: 1 },
+    { key: 'agent:a', ref: a.items[0] },
+  ]);
+});
+
+test('horizontal gestures and invalid layout measurements cannot resize the vertical split', () => {
+  const { isVerticalSplitDrag, resizeSplit } = model();
+  assert.equal(isVerticalSplitDrag(60, 8), false);
+  assert.equal(isVerticalSplitDrag(2, 8), true);
+  assert.equal(resizeSplit(0.5, NaN, 500), 0.5);
+  assert.equal(resizeSplit(0.5, 10, Infinity), 0.5);
 });
 
 test('vertical drag adjusts the split but leaves both panes reachable', () => {
