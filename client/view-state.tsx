@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSettings } from '@getpaseo/plugin/client';
 import { viewState } from '../shared/settings';
+import type { AgentSortMode } from '../shared/spaces-agents';
 
-type State = { open: Record<string, boolean>; showAll: string[]; activeTab: string | null; titleLines: number | null };
-const empty: State = { open: {}, showAll: [], activeTab: null, titleLines: null };
+type State = typeof viewState.schema._output;
+const empty: State = { open: {}, showAll: [], activeTab: null, titleLines: null, agentSortMode: 'space' };
 interface ViewApi {
   isOpen(key: string, fallback: boolean): boolean;
   setOpen(key: string, open: boolean): void;
@@ -14,6 +15,8 @@ interface ViewApi {
   setActiveTab(id: string | null): void;
   titleLines: number | null;
   setTitleLines(lines: number): void;
+  agentSortMode: AgentSortMode;
+  setAgentSortMode(mode: AgentSortMode): void;
   collapsed: boolean;
   toggleCollapseAll(extra?: readonly string[]): void;
 }
@@ -51,6 +54,8 @@ export function ViewStateProvider({ children }: { children: ReactNode }) {
     setActiveTab: id => update(value => ({ ...value, activeTab: id })),
     titleLines: current.titleLines,
     setTitleLines: lines => update(value => ({ ...value, titleLines: lines })),
+    agentSortMode: current.agentSortMode,
+    setAgentSortMode: mode => update(value => ({ ...value, agentSortMode: mode })),
     collapsed,
     toggleCollapseAll: (extra = []) => {
       if (collapsed) update(value => ({ ...value, open: { ...beforeCollapse.current } }));

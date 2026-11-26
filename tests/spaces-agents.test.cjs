@@ -92,6 +92,20 @@ test('horizontal gestures and invalid layout measurements cannot resize the vert
   assert.equal(resizeSplit(0.5, 10, Infinity), 0.5);
 });
 
+test('priority puts all attention first, then execution, then idle, newest within each bucket', () => {
+  const { compareAgentPriority } = model();
+  const rows = [
+    agent('idle-new', 'local/ws', 'idle', null, 100),
+    agent('running-new', 'local/ws', 'initializing', null, 90),
+    agent('permission', 'remote/ws', 'running', 'permission', 1),
+    agent('error', 'local/ws', 'error', null, 3),
+    agent('unread', 'remote/ws', 'idle', 'finished', 2),
+    agent('running-old', 'remote/ws', 'running', null, 80),
+    agent('idle-old', 'local/ws', 'idle', null, 50),
+  ];
+  assert.deepEqual(rows.sort(compareAgentPriority).map(row => row.ref.key), ['error', 'unread', 'permission', 'running-new', 'running-old', 'idle-new', 'idle-old']);
+});
+
 test('vertical drag adjusts the split but leaves both panes reachable', () => {
   const { resizeSplit } = model();
   assert.equal(resizeSplit(0.5, 100, 500), 0.7);

@@ -1,3 +1,5 @@
+export type AgentSortMode = 'space' | 'priority';
+
 type Agent = {
   ref: { key: string };
   workspace: { key: string };
@@ -40,6 +42,14 @@ export function defaultHostFirst<T extends { serverId: string }>(hosts: readonly
 
 export function compareAgentActivity(a: Agent, b: Agent) {
   return Date.parse(b.lastActivityAt) - Date.parse(a.lastActivityAt) || a.ref.key.localeCompare(b.ref.key);
+}
+
+export function compareAgentPriority(a: Agent, b: Agent) {
+  const bucket = (agent: Agent) => {
+    const state = agentState(agent);
+    return state === 'idle' ? 2 : state === 'running' ? 1 : 0;
+  };
+  return bucket(a) - bucket(b) || compareAgentActivity(a, b);
 }
 
 export function spaceTitle(workspace: { title: string | null; name: string; directory: string }) {

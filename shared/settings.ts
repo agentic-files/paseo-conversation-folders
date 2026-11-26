@@ -53,6 +53,7 @@ export const viewState = defineSettings({
     showAll: z.array(z.string()).default([]),
     activeTab: z.string().nullable().default(null),
     titleLines: z.number().int().min(1).max(2).nullable().default(null),
+    agentSortMode: z.enum(['space', 'priority']).default('space'),
   }),
 });
 

@@ -33,6 +33,19 @@ function harness(stored = { open: {}, showAll: [], activeTab: null }) {
   const render = () => { cursor = 0; tree = mod.ViewStateProvider({ children: null }); pending.splice(0).forEach(fn => fn()); cursor = 0; tree = mod.ViewStateProvider({ children: null }); pending.splice(0).forEach(fn => fn()); return tree.props.value; };
   return { render, saves, failNext() { saveResult = false; }, reloads: () => reloads };
 }
+test('Agent sort defaults to Space and persists on this device without losing folds', async () => {
+  const stored = { open: { 'dual-agents:local/ws': false }, showAll: [], activeTab: null, titleLines: null, agentSortMode: 'space' };
+  const h = harness(stored);
+  let api = h.render();
+  assert.equal(api.agentSortMode, 'space');
+  api.setAgentSortMode('priority'); api = h.render();
+  assert.equal(api.agentSortMode, 'priority');
+  assert.equal(api.isOpen('dual-agents:local/ws', true), false);
+  await wait();
+  assert.deepEqual(h.saves[0].values, { ...stored, agentSortMode: 'priority' });
+  assert.equal(harness(h.saves[0].values).render().agentSortMode, 'priority');
+});
+
 const wait = () => new Promise(resolve => setTimeout(resolve, 350));
 
 test('fold state starts from this device and writes back once after changes settle', async () => {

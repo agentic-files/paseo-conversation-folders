@@ -3,7 +3,7 @@ import { PanResponder, StyleSheet, Text, View } from 'react-native';
 import { FlatList, Icon } from '@getpaseo/plugin/client/ui';
 import { useAgent, useAgents, useHosts, useRpc, useTranslation, useWorkspace, useWorkspaces, type AgentRef, type WorkspaceRef, type PluginHostSummary, type PluginSidebarViewProps } from '@getpaseo/plugin/client';
 import { activityTime } from '../shared/activity';
-import { agentGroupKey, agentState, compareAgentActivity, compareSpaces, defaultHostFirst, directoryName, isExecutingAgent, isVerticalSplitDrag, agentGroupRows, resizeSplit, spaceTitle } from '../shared/spaces-agents';
+import { agentGroupKey, agentState, compareAgentActivity, compareAgentPriority, compareSpaces, defaultHostFirst, directoryName, isExecutingAgent, isVerticalSplitDrag, agentGroupRows, resizeSplit, spaceTitle } from '../shared/spaces-agents';
 import { messages, useAppLanguage } from './i18n';
 import { ConversationActions } from './conversation-actions';
 import { ViewStateProvider, useViewState } from './view-state';
@@ -11,6 +11,7 @@ import { identityColor } from '../shared/identity';
 import { hostContext } from '../shared/host-context';
 import { providerArtwork } from './provider-artwork';
 import { Disclosure, FeedbackPressable, Glyph, StatusMark } from './visuals';
+import { DropdownMenu, type DropdownAnchor, type DropdownItem } from './dropdown-menu';
 
 type SpaceRow = { key: string; host: PluginHostSummary } | { key: string; ref: WorkspaceRef };
 
@@ -102,12 +103,14 @@ function DualSidebar(view: PluginSidebarViewProps) {
   const workspaces = useWorkspaces({ where: workspace => !workspace.background && !workspace.archivingAt, groupBy: workspace => workspace.hostId, orderBy: compareSpaces });
   const visibleWorkspaces = new Map(workspaces.flatMap(group => group.items.map(ref => [ref.key, ref] as const)));
   const pinned = new Set(useWorkspaces({ where: workspace => !!workspace.pinnedAt }).map(ref => ref.key));
+  const sortMode = useViewState()?.agentSortMode ?? 'space';
   const agentGroups = useAgents({
     where: agent => !agent.background && agent.status !== 'closed' && online.has(agent.hostId) && visibleWorkspaces.has(agent.workspace.key),
-    orderBy: compareAgentActivity,
-    groupBy: agentGroupKey,
+    orderBy: sortMode === 'space' ? compareAgentActivity : compareAgentPriority,
+    groupBy: sortMode === 'space' ? agentGroupKey : () => 'priority',
   });
   const runningBySpace = new Map(useAgents({ where: agent => online.has(agent.hostId) && isExecutingAgent(agent), groupBy: agentGroupKey }).map(group => [group.key, group.items.length]));
+  const runningHosts = new Set([...visibleWorkspaces.values()].filter(ref => (runningBySpace.get(ref.key) ?? 0) > 0).map(ref => ref.hostId));
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const isOpen = (host: PluginHostSummary) => open[host.serverId] ?? (host.serverId === defaultHost || view.active.workspace?.hostId === host.serverId);
   const spaceRows: SpaceRow[] = hosts.flatMap(host => [
@@ -134,10 +137,12 @@ function DualSidebar(view: PluginSidebarViewProps) {
         const available = host.status === 'online';
         const expanded = available && isOpen(host);
         const status = available ? (zh ? '在线' : 'Online') : host.status === 'connecting' ? (zh ? '连接中' : 'Connecting') : (zh ? '离线' : 'Offline');
-        return <FeedbackPressable theme={view.theme} accessibilityRole="button" accessibilityLabel={`${host.label}, ${status}`} accessibilityState={{ expanded, disabled: !available }} disabled={!available} onPress={() => setOpen(previous => ({ ...previous, [host.serverId]: !expanded }))} style={[styles.row, { minHeight: view.layout.compact ? 44 : 34 }]}>
+        const running = available && runningHosts.has(host.serverId);
+        const activity = available ? (running ? (zh ? '运行中' : 'Running') : (zh ? '空闲' : 'Idle')) : '';
+        return <FeedbackPressable theme={view.theme} accessibilityRole="button" accessibilityLabel={[host.label, status, activity].filter(Boolean).join(', ')} accessibilityState={{ expanded, disabled: !available }} disabled={!available} onPress={() => setOpen(previous => ({ ...previous, [host.serverId]: !expanded }))} style={[styles.row, { minHeight: view.layout.compact ? 44 : 34 }]}>
           <Glyph name={host.serverId === defaultHost ? 'Monitor' : 'server'} color={c.foregroundMuted} />
           <Text numberOfLines={1} style={[styles.main, { color: c.foreground }]}>{host.label}</Text>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: available ? c.statusSuccess : host.status === 'connecting' ? c.statusWarning : c.foregroundMuted }} />
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: running ? c.statusSuccess : host.status === 'connecting' ? c.statusWarning : c.foregroundMuted }} />
           <Disclosure open={expanded} color={c.foregroundMuted} />
         </FeedbackPressable>;
       }} />
@@ -153,10 +158,29 @@ function AgentPane({ flex, sections, workspaces, hosts, view, zh, pinned }: { fl
   const viewState = useViewState();
   const keyFor = (key: string) => 'dual-agents:' + key;
   const isOpen = (key: string) => viewState?.isOpen(keyFor(key), true) ?? true;
-  const rows = agentGroupRows(sections.filter(section => workspaces.has(section.key)), key => pinned.has(key), isOpen);
+  const sortMode = viewState?.agentSortMode ?? 'space';
+  const rows = sortMode === 'space'
+    ? agentGroupRows(sections.filter(section => workspaces.has(section.key)), key => pinned.has(key), isOpen)
+    : sections.flatMap(section => section.items.map(ref => ({ key: 'agent:' + ref.key, ref })));
+  const [anchor, setAnchor] = useState<DropdownAnchor | null>(null);
+  const sortButton = useRef<View | null>(null);
+  const modes = [
+    { id: 'space', label: zh ? '按工作区' : 'By Space' },
+    { id: 'priority', label: zh ? '按优先级' : 'By priority' },
+  ] as const;
+  const menu: DropdownItem[] = modes.map(mode => ({ ...mode, checked: sortMode === mode.id, onSelect: () => { viewState?.setAgentSortMode(mode.id); setAnchor(null); } }));
   const c = view.theme.colors;
   return <View style={[styles.pane, { flex }]}>
-    <Text accessibilityRole="header" style={[styles.heading, { color: c.foregroundMuted }]}>Agents</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Text accessibilityRole="header" style={[styles.heading, { color: c.foregroundMuted }]}>Agents</Text>
+      <FeedbackPressable theme={view.theme} focusRef={sortButton} accessibilityRole="button" accessibilityLabel={zh ? 'Agent 排序' : 'Sort agents'} accessibilityState={{ expanded: anchor !== null }} onPress={() => {
+        if (anchor) setAnchor(null);
+        else sortButton.current?.measureInWindow((x, y, width, height) => setAnchor({ right: x + width, top: y + height + 4 }));
+      }} style={{ minWidth: view.layout.compact ? 44 : 32, minHeight: view.layout.compact ? 44 : 32, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}>
+        <Glyph name="sort" color={c.foregroundMuted} />
+      </FeedbackPressable>
+    </View>
+    <DropdownMenu anchor={anchor} items={menu} close={() => setAnchor(null)} view={view} />
     <FlatList style={styles.list} data={rows} keyExtractor={item => item.key} ListEmptyComponent={<Text style={[styles.label, { color: c.foregroundMuted }]}>{zh ? '没有可显示的会话' : 'No sessions to show'}</Text>} renderItem={({ item }) => {
       if ('ref' in item) return <AgentRow reference={item.ref} host={hosts.get(item.ref.hostId) ?? item.ref.hostId} view={view} zh={zh} />;
       const workspace = workspaces.get(item.workspaceKey);
