@@ -1,5 +1,5 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const ts=require('typescript');
-function harness({host='local',fail=false,unconfirmed=false,branch='main',dragging=false,pins=null,workspaceOnly=false}={}) {
+function harness({host='local',fail=false,unconfirmed=false,branch='main',dragging=false,pins=null,workspaceOnly=false,minimal=false,quickArchive=false}={}) {
  const calls=[],effects=[],states=[];let cursor=0,tree;
  const jsx=(type,props)=>({type,props});const imports={
   './i18n':{t:(s,...a)=>s.replace(/\{(\d)\}/g,(_,i)=>String(a[i])),timeLabel:s=>s,useAppLanguage(){}},'./action-dialog':{ActionDialog:'ActionDialog'},'./pins':{usePins:()=>pins},'./web':{isSidebarDragging:()=>dragging,showConversationTooltip:()=>()=>{}},'../shared/activity':{activityTime:()=> 'now'},react:{useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return[states[i],v=>states[i]=typeof v==='function'?v(states[i]):v]},useRef(v){const i=cursor++;if(!(i in states))states[i]={current:v};return states[i]},useEffect(fn){const i=cursor++;if(!(i in states)){states[i]=true;effects.push(fn)}}},
@@ -9,7 +9,7 @@ function harness({host='local',fail=false,unconfirmed=false,branch='main',draggi
  };
  const source=ts.transpileModule(fs.readFileSync(require.resolve('../client/conversation-actions.tsx'),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;const m={exports:{}};new Function('require','exports',source)(n=>imports[n],m.exports);
  const reference={hostId:host,id:'test-id',kind:workspaceOnly?'workspace':'agent',key:'test-ref'};
- const render=()=>{cursor=0;tree=m.exports.ConversationActions({reference,view:{active:{agent:null},theme:{colors:{}},layout:{compact:false,platform:'web'},navigation:{openWorkspace:ref=>calls.push(['open',ref])}},children:()=> 'row'})};
+ const render=()=>{cursor=0;tree=m.exports.ConversationActions({reference,minimal,quickArchive,view:{active:{agent:null},theme:{colors:{}},layout:{compact:false,platform:'web'},navigation:{openWorkspace:ref=>calls.push(['open',ref])}},children:(_,archive)=> archive ? ['row',archive] : 'row'})};
  function walk(n,out=[]){if(Array.isArray(n))n.forEach(x=>walk(x,out));else if(n&&typeof n==='object'){out.push(n);walk(n.props?.children,out);if(n.type==='ActionRow')walk(n.props?.action,out)}return out}
  render();effects.forEach(fn=>fn());return{calls,reference,render,nodes:()=>walk(tree),action:id=>walk(tree).find(n=>n.type==='ContextMenu').props.actions.find(a=>a.id===id),find:label=>walk(tree).find(n=>n.props?.accessibilityLabel===label)};
 }
@@ -69,4 +69,24 @@ test('workspace rows expose only workspace actions and archive the exact workspa
  h.action('archive-workspace').onSelect();h.render();assert.deepEqual(h.calls,[]);
  h.find('Confirm conversation action').props.onPress();await tick();
  assert.deepEqual(h.calls,[['archive-workspace',h.reference]]);
+});
+
+test('quickArchive button stays hidden until hovered and archives directly', async () => {
+ for (const workspaceOnly of [false, true]) {
+  const h=harness({workspaceOnly,minimal:true,quickArchive:true});
+  await tick();h.render();
+  const label=workspaceOnly?'Archive Workspace':'Archive Test';
+  assert.equal(h.find(label),undefined);
+  const root=h.nodes()[0];
+  root.props.onPointerEnter({nativeEvent:{pointerType:'mouse'}});h.render();
+  const button=h.find(label);
+  assert.ok(button,'archive quick button appears on hover');
+  let stopped=false;
+  button.props.onPress({stopPropagation(){stopped=true;}});
+  await tick();h.render();
+  assert.equal(stopped,true);
+  assert.deepEqual(h.calls,[[workspaceOnly?'archive-workspace':'archive-agent',h.reference]]);
+  root.props.onPointerLeave();h.render();
+  assert.equal(h.find(label),undefined);
+ }
 });

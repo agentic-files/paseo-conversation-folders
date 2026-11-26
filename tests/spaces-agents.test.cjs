@@ -54,6 +54,13 @@ test('Space naming honors a custom title, otherwise uses the directory', () => {
   assert.equal(spaceTitle(workspace, null), 'project');
 });
 
+test('Space labels fit ten visible characters including the ellipsis', () => {
+  const { shortSpaceTitle } = model();
+  assert.equal(shortSpaceTitle('0123456789'), '0123456789');
+  assert.equal(shortSpaceTitle('这是一个非常长的工作区名字'), '这是一个非常长的工…');
+  assert.equal(shortSpaceTitle('01234567👩‍💻890'), '01234567👩‍💻…');
+});
+
 test('newly pinned Spaces rise above other Spaces and unpinning restores name order', () => {
   const { compareSpaces } = model();
   const a = { name: 'a', pinnedAt: null };
@@ -112,4 +119,54 @@ test('vertical drag adjusts the split but leaves both panes reachable', () => {
   assert.equal(resizeSplit(0.5, 1000, 500), 0.8);
   assert.equal(resizeSplit(0.5, -1000, 500), 0.2);
   assert.equal(resizeSplit(0.5, 100, 0), 0.5);
+});
+
+test('priority rows insert non-empty attention, running and idle bucket headers in order', () => {
+  const { agentPriorityBucket, agentPriorityRows, isAttentionAgent } = model();
+  const perm = agent('p', 'local/ws', 'running', 'permission', 10);
+  const run = agent('r', 'local/ws', 'running', null, 20);
+  const idle = agent('i', 'local/ws', 'idle', null, 30);
+  assert.deepEqual([perm, run, idle].map(agentPriorityBucket), ['attention', 'running', 'idle']);
+  assert.deepEqual([perm, run, idle].map(isAttentionAgent), [true, false, false]);
+  assert.equal(isAttentionAgent({ ...perm, background: true }), false);
+  assert.deepEqual(
+    agentPriorityRows([
+      { key: 'idle', items: [idle.ref] },
+      { key: 'attention', items: [perm.ref] },
+    ]),
+    [
+      { key: 'bucket:attention', bucket: 'attention', count: 1 },
+      { key: 'agent:p', ref: perm.ref },
+      { key: 'bucket:idle', bucket: 'idle', count: 1 },
+      { key: 'agent:i', ref: idle.ref },
+    ],
+  );
+});
+
+test('workspace directory suffix is hidden when it matches the displayed title', () => {
+  const { showSpaceDirectory } = model();
+  assert.equal(showSpaceDirectory('project', '/work/project'), false);
+  assert.equal(showSpaceDirectory('Custom', '/work/project'), true);
+});
+
+test('agent location always includes workspace directory without duplicating default titles', () => {
+  const { agentLocation } = model();
+  const custom = { title: 'paseo-mod-feature', name: 'ws-1', directory: '/Users/melos/dev/personal/paseo-quote' };
+  const plain = { title: null, name: 'ws-2', directory: '/Users/melos/dev/paseo-conversation-folders' };
+  assert.equal(agentLocation(custom, 'Mac', false), 'paseo-quote · Mac');
+  assert.equal(agentLocation(custom, 'Mac', true), 'paseo-mod… · paseo-quote · Mac');
+  assert.equal(agentLocation(plain, 'Mac', false), 'paseo-conversation-folders · Mac');
+  assert.equal(agentLocation(plain, 'Mac', true), 'paseo-conversation-folders · Mac');
+  assert.equal(agentLocation(null, 'Mac', true), 'Mac');
+});
+
+test('space heading meta shows directory and host without repeating short matching directory names', () => {
+  const { spaceHeadingMeta } = model();
+  const custom = { title: 'paseo-mod-feature', name: 'ws-1', directory: '/Users/melos/dev/personal/paseo-quote' };
+  const longDir = { title: null, name: 'ws-2', directory: '/Users/melos/dev/paseo-conversation-folders' };
+  const shortDir = { title: null, name: 'ws-3', directory: '/work/ray' };
+  assert.equal(spaceHeadingMeta(custom, 'Mac'), 'paseo-quote · Mac');
+  assert.equal(spaceHeadingMeta(longDir, 'Mac'), 'paseo-conversation-folders · Mac');
+  assert.equal(spaceHeadingMeta(shortDir, 'cvm'), 'cvm');
+  assert.equal(spaceHeadingMeta(null, 'cvm'), 'cvm');
 });

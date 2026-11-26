@@ -64,13 +64,13 @@ function harness() {
     else if (node && typeof node === 'object') { out.push(node); nodes(node.props?.children, out); }
     return out;
   }
-  const view = { theme: { colors: { statusSuccess: 'green', statusWarning: 'yellow', foregroundMuted: 'gray' } }, layout: { compact: false }, active: {}, navigation: {} };
+  const view = { theme: { colors: { statusSuccess: 'green', statusWarning: 'yellow', statusDanger: 'red', foregroundMuted: 'gray' } }, layout: { compact: false }, active: {}, navigation: {} };
   const render = () => { tree = expand(jsx(mod.SpacesAgentsSidebar, view)); };
   render();
   return { state, agents, hosts, workspaces, render, nodes: () => nodes(tree), find: label => nodes(tree).find(node => node.props.accessibilityLabel === label), lists: () => nodes(tree).filter(node => node.type === 'FlatList') };
 }
 
-test('sort menu switches to a live flat priority list and restores pinned folded Space groups', () => {
+test('sort menu switches to a live priority list with bucket headers and restores pinned folded Space groups', () => {
   const h = harness();
   h.state.setOpen('dual-agents:remote/b', false); h.render();
   const grouped = () => h.lists()[1].props.data;
@@ -90,11 +90,11 @@ test('sort menu switches to a live flat priority list and restores pinned folded
   menu = h.nodes().find(node => node.type === 'DropdownMenu');
   assert.equal(menu.props.items.find(item => item.id === 'space').checked, true);
   menu.props.items.find(item => item.id === 'priority').onSelect(); h.render();
-  assert.deepEqual(grouped().map(row => row.ref.key), ['error', 'unread', 'permission', 'run', 'idle']);
+  assert.deepEqual(grouped().map(row => row.key), ['bucket:attention', 'agent:error', 'agent:unread', 'agent:permission', 'bucket:running', 'agent:run', 'bucket:idle', 'agent:idle']);
   assert.equal(h.nodes().find(node => node.type === 'DropdownMenu').props.anchor, null);
   h.agents.find(row => row.ref.key === 'idle').requiresAttention = true;
   h.render();
-  assert.deepEqual(grouped().map(row => row.ref.key), ['idle', 'error', 'unread', 'permission', 'run']);
+  assert.deepEqual(grouped().map(row => row.key), ['bucket:attention', 'agent:idle', 'agent:error', 'agent:unread', 'agent:permission', 'bucket:running', 'agent:run']);
   menu = h.nodes().find(node => node.type === 'DropdownMenu');
   menu.props.items.find(item => item.id === 'space').onSelect(); h.render();
   assert.deepEqual(grouped().map(row => row.key), ['space:remote/b', 'space:local/a', 'agent:idle', 'agent:run']);
@@ -106,18 +106,18 @@ test('machine dots reflect visible workspace execution even with collapsed hosts
   const hostRows = () => h.lists()[0].props.data.filter(row => row.host).map(item => h.lists()[0].props.renderItem({ item }));
   const dot = row => row.props.children.find(child => child?.type === 'View');
   let rows = hostRows();
-  assert.deepEqual(rows.map(row => dot(row).props.style.backgroundColor), ['green', 'gray', 'gray', 'yellow']);
+  assert.deepEqual(rows.map(row => dot(row)?.props.style.backgroundColor), ['red', undefined, undefined, undefined]);
   assert.equal(rows[0].props.accessibilityState.expanded, false);
   assert.match(rows[0].props.accessibilityLabel, /Online.*Running/);
   assert.equal(rows[2].props.disabled, true);
   assert.equal(rows[3].props.disabled, true);
   h.agents.find(row => row.ref.key === 'run').status = 'idle'; h.render();
-  assert.equal(dot(hostRows()[0]).props.style.backgroundColor, 'gray');
+  assert.equal(dot(hostRows()[0]), undefined);
   h.agents.find(row => row.ref.key === 'run').status = 'initializing'; h.render();
-  assert.equal(dot(hostRows()[0]).props.style.backgroundColor, 'green');
+  assert.equal(dot(hostRows()[0]).props.style.backgroundColor, 'red');
   h.hosts[0].status = 'offline'; h.render();
   rows = hostRows();
-  assert.equal(dot(rows[0]).props.style.backgroundColor, 'gray');
+  assert.equal(dot(rows[0]), undefined);
   assert.equal(rows[0].props.disabled, true);
   assert.match(rows[0].props.accessibilityLabel, /Offline/);
 });
@@ -127,4 +127,20 @@ test('legacy device preferences default to Space sorting', () => {
   assert.equal(viewState.scope, 'device');
   assert.equal(viewState.schema.parse({}).agentSortMode, 'space');
   assert.equal(viewState.schema.safeParse({ agentSortMode: 'unknown' }).success, false);
+});
+
+test('Agents header shows attention count and current sort mode label', () => {
+  const h = harness();
+  const texts = () => h.nodes().filter(node => node.type === 'Text').map(node => Array.isArray(node.props.children) ? node.props.children.join('') : String(node.props.children ?? ''));
+  assert.ok(texts().includes('3 attention'), 'header shows active attention count');
+  assert.ok(texts().includes('By Space'), 'sort button shows active mode label');
+  h.state.setAgentSortMode('priority');
+  h.render();
+  assert.ok(texts().includes('By priority'), 'sort button updates to priority label');
+});
+
+test('provider artwork resolves antigravity alongside existing providers', () => {
+  const { providerArtwork } = load('../client/provider-artwork.ts');
+  assert.ok(providerArtwork('antigravity')?.svg.includes('M89.6992'), 'antigravity returns svg artwork');
+  assert.equal(providerArtwork('unknown-provider'), null);
 });

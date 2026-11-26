@@ -14,7 +14,7 @@ import { usePins } from './pins';
 
 type Dialog = 'rename-agent' | 'rename' | 'labels' | 'archive-agent' | 'archive-workspace' | 'delete-agent';
 /** Actions stay attached to the conversation's source host, including mixed-host folders. */
-export function ConversationActions({ reference, view, minimal = false, workspaceTitle, children }: { reference: AgentRef | WorkspaceRef; view: PluginSidebarViewProps; minimal?: boolean; workspaceTitle?: string; children(openMenu: () => void): ReactNode }) {
+export function ConversationActions({ reference, view, minimal = false, quickArchive = false, workspaceTitle, children }: { reference: AgentRef | WorkspaceRef; view: PluginSidebarViewProps; minimal?: boolean; quickArchive?: boolean; workspaceTitle?: string; children(openMenu: () => void, archiveAction?: ReactNode): ReactNode }) {
   const paseo = usePaseo();
   const removeConversation = useRpc(deleteConversation);
   const renameAgent = useRpc(renameConversation);
@@ -73,6 +73,19 @@ export function ConversationActions({ reference, view, minimal = false, workspac
     ...(agentRef ? [{ id: 'delete-agent', label: t('Delete conversation…'), danger: true, disabled: !agent || busy || ownerHost !== reference.hostId, onSelect: () => edit('delete-agent') }] : []),
     { id: 'archive-workspace', label: t('Archive workspace…'), disabled: !workspace || busy, onSelect: () => edit('archive-workspace') },
   ];
+  const archiveNow = (event?: { stopPropagation?: () => void }) => {
+    event?.stopPropagation?.();
+    if (busy || !(agentRef ? agent : workspace)) return;
+    void run(async () => {
+      if (agentRef) {
+        const result = await paseo.agents.ref(agentRef).archive();
+        if (!result.archivedAt) throw new Error('The host did not confirm archiving. Try again.');
+      } else {
+        const result = await workspaceHandle().archive();
+        if (result.error || !result.archivedAt) throw new Error(result.error || 'The host did not confirm archiving the workspace. Try again.');
+      }
+    });
+  };
   const close = () => { if (!pending.current) { setDialog(null); setError(null); } };
   const submit = () => {
     if (!dialog || ((dialog === 'rename-agent' || dialog === 'labels') && !draft.trim())) return;
@@ -105,8 +118,11 @@ export function ConversationActions({ reference, view, minimal = false, workspac
     onContextMenu: (event: { preventDefault(): void; stopPropagation(): void; clientX: number; clientY: number }) => { event.preventDefault(); event.stopPropagation(); setAnchor({ x:event.clientX, y:event.clientY }); },
     onKeyDown: (event: { key: string; shiftKey: boolean; preventDefault(): void; stopPropagation(): void }) => { if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') { event.preventDefault(); event.stopPropagation(); row.current?.measureInWindow((x,y,width,height) => setAnchor({x:x+width-208,y:y+height})); } },
   } : {};
+  const archiveAction = minimal && quickArchive && hovered && !view.layout.compact ? <FeedbackPressable theme={view.theme} accessibilityRole="button" accessibilityLabel={`Archive ${title}`} disabled={busy || !(agentRef ? agent : workspace)} onPress={archiveNow} style={{ width: 20, height: 18, borderRadius: 4, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+    <Glyph name="archive" size={13} color={c.foregroundMuted} />
+  </FeedbackPressable> : null;
   return <View ref={row} style={{ minWidth: 0, paddingVertical: 2 }} onPointerEnter={event => { if(event.nativeEvent.pointerType !== 'touch')setHovered(true); }} onPointerLeave={() => setHovered(false)} {...contextEvents}>
-    {minimal ? children(open) : <ActionRow idleAction={view.layout.compact ? undefined : time} selected={view.active.agent?.key === reference.key} theme={view.theme} compact={view.layout.compact} active={!!anchor} persistent={!!anchor} action={view.layout.compact ? time : <View style={{flexDirection:'row',alignItems:'center'}}>
+    {minimal ? children(open, archiveAction) : <ActionRow idleAction={view.layout.compact ? undefined : time} selected={view.active.agent?.key === reference.key} theme={view.theme} compact={view.layout.compact} active={!!anchor} persistent={!!anchor} action={view.layout.compact ? time : <View style={{flexDirection:'row',alignItems:'center'}}>
       <FeedbackPressable theme={view.theme} hoverBackground="transparent" accessibilityRole="button" accessibilityLabel={`Archive ${title}`} disabled={busy || !(agentRef ? agent : workspace)} onPress={() => edit(archiveKind)} style={{width:24,minHeight:30,alignItems:'center',justifyContent:'center'}}><Glyph name="archive" size={14} color={c.foregroundMuted} /></FeedbackPressable>
       <FeedbackPressable focusRef={more} theme={view.theme} hoverBackground="transparent" accessibilityRole="button" accessibilityLabel={`More actions for ${title}`} accessibilityState={{ expanded:!!anchor, disabled:busy }} disabled={busy} onPress={open} onLongPress={open} style={{ width:24, minHeight:30, alignItems:'center', justifyContent:'center' }}><Glyph name="moreVertical" size={13} color={c.foregroundMuted} /></FeedbackPressable>
     </View>}>
